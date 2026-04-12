@@ -19,13 +19,23 @@ jobs:
       - name: Run app
         run: |
           source venv/bin/activate
-          nohup python src/app/app.py &
+          nohup python src/app/app.py > app.log 2>&1 &
           echo $! > app_pid
+          echo "Waiting for Flask to start..."
+          sleep 5
+          echo "=== Flask log ==="
+          cat app.log
+          echo "================="
+          ps aux | grep python
       - name: Test GET-request
-        shell: bash
         run: |
-          sleep 3
+          source venv/bin/activate
+          echo "Testing connection to Flask..."
+          curl -v http://127.0.0.1:5000 || true
           chmod +x ./test/integration-tests.sh
           ./test/integration-tests.sh
       - name: Stop app
-        run: kill -15 `cat app_pid`
+        run: |
+          if [ -f app_pid ]; then
+            kill -15 `cat app_pid` 2>/dev/null || true
+          fi
