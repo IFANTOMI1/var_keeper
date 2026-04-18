@@ -7,35 +7,46 @@ on:
 jobs:
   integration_testing:
     runs-on: self-hosted
+    container: python:3.12.3-slim
+    services:
+      db:
+        image: mysql:5.7
+        env:
+          MYSQL_ROOT_PASSWORD: 123
+        options: >-
+          --health-cmd "mysqladmin ping -p123"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-      - name: Create virtual env
-        run: python3 -m venv venv
+      
       - name: Install requirements
-        run: |
-          source venv/bin/activate
-          pip install -r requirements.txt
+        run: pip install --default-timeout=100 --retries=10 -r requirements.txt
+      
+      - name: Install curl
+        run: apt-get -y update; apt-get -y install curl
+      
       - name: Run app
         run: |
-          source venv/bin/activate
-          nohup python src/app/app.py > app.log 2>&1 &
-          echo $! > app_pid
-          echo "Waiting for Flask to start..."
-          sleep 5
-          echo "=== Flask log ==="
-          cat app.log
-          echo "================="
-          ps aux | grep python
-      - name: Test GET-request
+          python3 ./src/app/app.py &
+          sleep 10
+          curl -s http://localhost:5000/ > /dev/null || (cat flask.log && exit 1)
+      
+      - name: Set variable a to 123
+        run: curl -X POST -F 'value=123' http://localhost:5000/var/a
+      
+      - name: Test getting the value of a variable
         run: |
-          source venv/bin/activate
-          echo "Testing connection to Flask..."
-          curl -v http://127.0.0.1:5000 || true
-          chmod +x ./test/integration-tests.sh
-          ./test/integration-tests.sh
-      - name: Stop app
-        run: |
-          if [ -f app_pid ]; then
-            kill -15 `cat app_pid` 2>/dev/null || true
+          VALUE=$(curl -s http://localhost:5000/var/a)
+          if [ "$VALUE" != "123" ]; then
+            echo "Test FAILED: expected 123, got $VALUE"
+            exit 1
+          else
+            echo "Integration Test PASS"
           fi
+      
+      - name: Clean the workspace
+        if: ${{ always() }}
+        run: find $GITHUB_WORKSPACE -mindepth 1 -delete
